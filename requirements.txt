@@ -2,6 +2,5 @@ streamlit
 opencv-python-headless
 numpy
 Pillow
-rembg
+rembg[cpu]
 pillow-heif
-onnxruntime
