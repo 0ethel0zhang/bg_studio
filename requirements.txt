@@ -4,3 +4,4 @@ numpy
 Pillow
 rembg
 pillow-heif
+onnxruntime

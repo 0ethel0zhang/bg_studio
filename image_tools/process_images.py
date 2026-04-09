@@ -4,11 +4,11 @@ import numpy as np
 import cv2
 from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
-from rembg import remove
-
-register_heif_opener()
+from pillow_heif import register_heif_opener
 
 def convert_heic_to_jpg(heic_path):
+    import os
+    import subprocess
     jpg_path = heic_path.rsplit('.', 1)[0] + ".jpg"
     if not os.path.exists(jpg_path):
         print(f"Converting {heic_path} to {jpg_path}...")
@@ -16,6 +16,8 @@ def convert_heic_to_jpg(heic_path):
     return jpg_path
 
 def get_person_mask(image_path):
+    from rembg import remove
+    register_heif_opener()
     # Use PIL to read image and handle EXIF orientation
     image = Image.open(image_path)
     image = ImageOps.exif_transpose(image)

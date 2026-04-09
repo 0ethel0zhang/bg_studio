@@ -2,26 +2,29 @@ import streamlit as st
 import cv2
 import numpy as np
 from PIL import Image, ImageOps
-from pillow_heif import register_heif_opener
 import os
-
-register_heif_opener()
 import tempfile
 import subprocess
-from rembg import remove
+
+# Title
+st.set_page_config(page_title="Image Processing Tools", layout="wide")
+
+# Lazy loading of heavy modules
+@st.cache_resource
+def get_rembg_session():
+    from rembg import new_session
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    return new_session()
 
 # Import functions from image_tools scripts
 from image_tools.process_images import merge_segments
 from image_tools.process_background import match_color_metrics
 
-# Title
-st.set_page_config(page_title="Image Processing Tools", layout="wide")
-
 if 'first_run' not in st.session_state:
     st.session_state.first_run = True
 
 st.title("Image Processing Studio")
-st.markdown("<p style='color: gray; font-size: 0.9em;'>Note: The first time a user uploads an image on the hosted version, the app will take a few seconds longer to process because rembg will download its ~170MB U2Net model to the cloud server. Subsequent images will be processed much faster.</p>", unsafe_allow_html=True)
 
 # Sidebar for tool selection
 tool = st.sidebar.selectbox("Select Tool", ["Merge/Extend People", "Relocate Person"])
@@ -32,6 +35,8 @@ def load_image(uploaded_file):
         return None
     
     try:
+        from pillow_heif import register_heif_opener
+        register_heif_opener()
         image = Image.open(uploaded_file)
         # Fix orientation issues (especially for mobile uploads)
         image = ImageOps.exif_transpose(image)
@@ -44,21 +49,37 @@ def load_image(uploaded_file):
         st.error(f"Failed to load image {uploaded_file.name}: {e}")
         return None
 
-def get_person_mask(img):
-    """Returns (output_bgra, binary_mask)"""
-    # rembg.remove returns a numpy array if input is numpy
-    output = remove(img)
+@st.cache_data(show_spinner=False)
+def get_person_mask_cached(img_bytes):
+    """
+    Cached version of mask extraction. 
+    Takes bytes to ensure caching works correctly with numpy arrays.
+    """
+    from rembg import remove
+    session = get_rembg_session()
     
-    # Ensure output matches input dimensions (sometimes rembg can return slightly different sizes)
+    # Convert bytes back to numpy for processing
+    nparr = np.frombuffer(img_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    
+    # rembg.remove returns a numpy array if input is numpy
+    output = remove(img, session=session)
+    
+    # Ensure output matches input dimensions
     if output.shape[:2] != img.shape[:2]:
         output = cv2.resize(output, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_AREA)
     
-    # Ensure it's a writable copy (onnxruntime can return read-only views)
+    # Ensure it's a writable copy
     output = output.copy()
     
     mask = output[:, :, 3]
     _, binary_mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
     return output, binary_mask
+
+def get_person_mask(img):
+    # Convert image to bytes for caching
+    _, img_encoded = cv2.imencode('.png', img)
+    return get_person_mask_cached(img_encoded.tobytes())
 
 def match_aspect_ratio(img, target_ratio, mode='crop'):
     """
